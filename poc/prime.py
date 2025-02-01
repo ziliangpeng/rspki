@@ -4,9 +4,9 @@ import random
 N_BITS = 1024
 
 
-def generate_prime() -> int:
+def generate_prime(n_bits: int) -> int:
     while True:  # until success
-        candidate = random.randint(2 ** (N_BITS - 1), 2**N_BITS)
+        candidate = random.randint(2 ** (n_bits - 1), 2**n_bits)
         candidate |= 1  # ensure odd
 
         if miller_rabin(candidate):
@@ -44,4 +44,4 @@ def miller_rabin(n: int, k: int = 40) -> bool:
 
 
 if __name__ == "__main__":
-    print(generate_prime())
+    print(generate_prime(N_BITS))
