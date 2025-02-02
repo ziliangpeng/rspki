@@ -1,13 +1,13 @@
-// use crate::bigint::BigInt;
 mod bigint;
 use bigint::BigInt;
 
 fn generate_prime(n_bits: usize) -> BigInt {
-    let mut n = BigInt::from_u64(0);
-    while true {
+    let mut n;
+    // Use an infinite loop to generate candidates.
+    loop {
         n = BigInt::random(n_bits);
-        n |= 1;
-        println!("{}", n.binary());
+        n |= 1; // Ensure the number is odd.
+        println!("{}", n.hex());
         if miller_rabin(&n, 40) {
             break;
         }
@@ -26,40 +26,39 @@ fn miller_rabin(n: &BigInt, k: u64) -> bool {
         return false;
     }
 
-    // let mut s = BigInt::from_u64(0);
-    let mut n1 = n; n1.clone().minus_one();
+    // BUG FIX: Instead of using n1.clone().minus_one() on a throwaway clone,
+    // properly clone n and then subtract one to obtain n - 1.
+    let mut n1 = n.clone();
+    n1.minus_one();
     let mut d = n1.clone();
     let s = d.trailing_zeros();
     d >>= s;
 
     for i in 0..k {
         println!("round {}", i);
-        let a = BigInt::random(n.bit_length()-1);
+        let a = BigInt::random(n.bit_length() - 1);
         let mut x = a.modpow(&d, n);
-        if x == 1 || x == *n1 {
+        if x == 1 || x == n1 {
             continue;
         }
 
-        if s > 0 {
-            for _ in 0..(s - 1) {
-                x = x.modpow_u32(2, n);
-                if x == *n1 {
-                    break;
-                }
+        for _ in 0..(s - 1) {
+            x = x.modpow_u32(2, n);
+            if x == n1 {
+                break;
             }
         }
 
-        if x != *n1 {
-            println!("{}\n{}", x.binary(), n1.binary());
-            println!("exit {}", x.binary());
+        if x != n1 {
+            println!("failed {} {}", x.binary(), n1.binary());
             return false;
         }
     }
 
-    return true;
+    true
 }
 
 fn main() {
-    let n = generate_prime(64);
-    println!("Generated prime: {}", n.binary());
+    let n = generate_prime(65);
+    println!("0x{}", n.hex());
 }

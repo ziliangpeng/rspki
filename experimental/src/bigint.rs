@@ -141,7 +141,10 @@ impl BigInt {
         (self.limbs.len() - 1) * 64 + bits
     }
 
-    fn cmp_bigint(&self, other: &BigInt) -> std::cmp::Ordering {
+    fn cmp_bigint(&mut self, other: &BigInt) -> std::cmp::Ordering {
+        while self.limbs.len() > 1 && self.limbs[self.limbs.len() - 1] == 0 {
+            self.limbs.pop();
+        }
         use std::cmp::Ordering;
         if self.limbs.len() != other.limbs.len() {
             return self.limbs.len().cmp(&other.limbs.len());
@@ -195,10 +198,17 @@ impl PartialEq<u64> for BigInt {
 
 impl PartialOrd<u64> for BigInt {
     fn partial_cmp(&self, other: &u64) -> Option<std::cmp::Ordering> {
-        if self.limbs.len() > 1 {
+        let mut s = self.clone();
+        while s.limbs.len() > 1 && s.limbs[s.limbs.len() - 1] == 0 {
+            println!("{} {}", s.binary(), other);
+            s.limbs.pop();
+        }
+        // println!("{} {}", s.binary(), other);
+
+        if s.limbs.len() > 1 {
             return Some(std::cmp::Ordering::Greater);
         }
-        Some(self.limbs[0].cmp(other))
+        Some(s.limbs[0].cmp(other))
     }
 }
 
@@ -282,11 +292,13 @@ impl BigInt {
         let mut result = BigInt::from_u64(1);
         let mut base = self % modulus;
         let mut e = exp.clone();
-        while e > 0u64 {
+        while e > 0 {
+            // println!("begin {}", e.binary());
             if !e.is_even() {
                 result = &(&result * &base) % modulus;
             }
             e >>= 1;
+            println!("e {}", e.binary());
             base = &(&base * &base) % modulus;
         }
         result
@@ -302,7 +314,16 @@ impl BigInt {
         self.limbs
             .iter()
             .rev()
-            .map(|l| format!("{:064b} ", l))
+            .map(|l| format!("{:064b}", l))
+            .collect::<Vec<String>>()
+            .join("")
+    }
+
+    pub fn hex(&self) -> String {
+        self.limbs
+            .iter()
+            .rev()
+            .map(|l| format!("{:016x}", l))
             .collect::<Vec<String>>()
             .join("")
     }
@@ -459,6 +480,41 @@ mod tests_ops {
         let mut d = original;
         d >>= 64;
         assert_eq!(d, BigInt::from_u64(63));
+    }
+
+    #[test]
+    fn test_overloaded_ops() {
+        // Test addition
+        let a = BigInt::from_u64(123);
+        let b = BigInt::from_u64(456);
+        let sum = &a + &b;
+        assert_eq!(sum, BigInt::from_u64(579));
+
+        // Test subtraction
+        let diff = &b - &a;
+        assert_eq!(diff, BigInt::from_u64(333));
+
+        // Test multiplication
+        let x = BigInt::from_u64(12);
+        let y = BigInt::from_u64(34);
+        let product = &x * &y;
+        assert_eq!(product, BigInt::from_u64(408));
+
+        // Test left shift (<<)
+        let one = BigInt::from_u64(1);
+        let shifted = &one << 5;
+        assert_eq!(shifted, BigInt::from_u64(32));
+
+        // Test remainder (%)
+        let ten = BigInt::from_u64(10);
+        let three = BigInt::from_u64(3);
+        let rem = &ten % &three;
+        assert_eq!(rem, BigInt::from_u64(1));
+
+        // Test bitwise or assignment (|=)
+        let mut c = BigInt::from_u64(8); // binary 1000
+        c |= 3; // 3 is 0011 in binary, so 1000 | 0011 should be 1011 (which is 11 in decimal)
+        assert_eq!(c, BigInt::from_u64(11));
     }
     #[test]
     fn test_partial_ord_u64() {
