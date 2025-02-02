@@ -3,6 +3,7 @@ use rand::Rng;
 use std::ops::Add;
 use std::ops::BitAnd;
 use std::ops::BitOrAssign;
+use std::ops::ShrAssign;
 
 pub struct BigInt {
     limbs: Vec<u64>, // binary-based limbs. each limb represents a 2^64 block.
@@ -99,12 +100,42 @@ impl BitAnd<u64> for BigInt {
     }
 }
 
+impl ShrAssign<u32> for BigInt {
+    fn shr_assign(&mut self, rhs: u32) {
+        let shift = rhs as usize;
+        let num_limbs = self.limbs.len();
+        let limb_shift = shift / 64;
+        let bit_shift = shift % 64;
+        if limb_shift >= num_limbs {
+            self.limbs = vec![0];
+            return;
+        }
+        let new_len = num_limbs - limb_shift;
+        let mut new_limbs = Vec::with_capacity(new_len);
+        for i in 0..new_len {
+            let current = self.limbs[i + limb_shift];
+            let next = if i + limb_shift + 1 < num_limbs {
+                self.limbs[i + limb_shift + 1]
+            } else {
+                0
+            };
+            if bit_shift == 0 {
+                new_limbs.push(current);
+            } else {
+                new_limbs.push((current >> bit_shift) | (next << (64 - bit_shift)));
+            }
+        }
+        self.limbs = new_limbs;
+    }
+}
+
 impl BitOrAssign<u64> for BigInt {
     fn bitor_assign(&mut self, other: u64) {
         self.limbs[0] |= other;
     }
 }
 
+// a bunch of helper arithmetic functions
 impl BigInt {
     pub fn minus_one(&mut self) {
         // technically i--; but rust do not have decrement operator, thus a new function.
@@ -119,6 +150,23 @@ impl BigInt {
             }
         }
     }
+
+    pub fn is_even(&self) -> bool {
+        self.limbs[0] % 2 == 0
+    }
+
+    pub fn trailing_zeros(&self) -> u32 {
+        // Check each limb from least significant to most significant
+        for (i, limb) in self.limbs.iter().enumerate() {
+            if *limb != 0 {
+                // Found a non-zero limb, count its trailing zeros
+                return (i as u32) * 64 + limb.trailing_zeros();
+            }
+        }
+        // All limbs are zero
+        (self.limbs.len() as u32) * 64
+    }
+
 }
 // Representation
 impl BigInt {
@@ -129,6 +177,12 @@ impl BigInt {
             .map(|l| format!("{:064b} ", l))
             .collect::<Vec<String>>()
             .join("")
+    }
+
+}
+impl std::fmt::Debug for BigInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BigInt({})", self.binary())
     }
 }
 
@@ -235,19 +289,48 @@ mod tests_ops {
     #[test]
     fn test_bitand_u64() {
         let mut a = BigInt::from_binary(&"1111");
-        a &= 10u64; // 1010 in binary
+        let a_u64 = a & 10u64; // 1010 in binary
         let b = BigInt::from_binary(&"1010");
-        assert!(a == b);
+        assert!(b == a_u64);
 
         let mut a = BigInt::from_hex("FFFFFFFFFFFFFFFF");
-        a &= 42u64;
+        let a_u64 = a & 42u64;
         let b = BigInt::from_u64(42);
-        assert!(a == b);
+        assert!(b == a_u64);
 
         let mut a = BigInt::from_binary(&"1".repeat(1000));
-        a &= 1u64;
+        let a_u64 = a & 1u64;
         let b = BigInt::from_u64(1);
-        assert!(a == b);
+        assert!(b == a_u64);
+    }
+
+    #[test]
+    fn test_shr_assign() {
+        // Test right-shifting a single-limb BigInt by less than 64 bits.
+        // For example, 11 (binary 1011) >> 1 should be 5 (binary 101).
+        let mut a = BigInt::from_u64(11);
+        a >>= 1;
+        assert_eq!(a, BigInt::from_u64(5));
+
+        // Test right-shifting a single-limb BigInt by 64 bits yields 0.
+        let mut b = BigInt::from_u64(12345);
+        b >>= 64;
+        assert_eq!(b, BigInt::from_u64(0));
+
+        // Test right-shifting a multi-limb BigInt by a non-multiple of 64 bits.
+        // Create a multi-limb BigInt representing 2^70 - 1 using a binary string of 70 ones.
+        let original = BigInt::from_binary(&"1".repeat(70));
+        let mut c = original;
+        c >>= 3; // (2^70 - 1) >> 3 should equal 2^67 - 1, which is represented by 67 ones in binary.
+        let expected = BigInt::from_binary(&"1".repeat(67));
+        assert_eq!(c, expected);
+
+        // Test right-shifting a multi-limb BigInt by exactly 64 bits.
+        // (2^70 - 1) >> 64 equals floor((2^70 - 1)/2^64) which is 63.
+        let original = BigInt::from_binary(&"1".repeat(70));
+        let mut d = original;
+        d >>= 64;
+        assert_eq!(d, BigInt::from_u64(63));
     }
     #[test]
     fn test_partial_ord_u64() {
@@ -278,5 +361,58 @@ mod tests_ops {
         assert!(a > b);
         assert!(!(a <= b));
         assert!(a >= b);
+    }
+}
+
+
+mod tests_arithmetic {
+    use super::*;
+
+    #[test]
+    fn test_minus_one() {
+        // Test simple subtraction without borrowing.
+        let mut a = BigInt::from_u64(10);
+        a.minus_one();
+        assert_eq!(a, BigInt::from_u64(9));
+
+        // Test edge case: subtracting one from one.
+        let mut b = BigInt::from_u64(1);
+        b.minus_one();
+        assert_eq!(b, BigInt::from_u64(0));
+
+        // Test subtraction that requires borrowing across limbs.
+        // Construct a two-limb BigInt representing 2^64.
+        let bin_str = format!("1{}", "0".repeat(64));
+        let mut c = BigInt::from_binary(&bin_str);
+        c.minus_one();
+        // After subtraction, the internal limbs should be [u64::MAX, 0]
+        let expected = BigInt { limbs: vec![u64::MAX, 0] };
+        assert_eq!(c, expected);
+    }
+
+    #[test]
+    fn test_trailing_zeros() {
+        let mut a = BigInt::from_binary("1");
+        assert_eq!(a.trailing_zeros(), 0);
+
+        a = BigInt::from_binary("100");
+        assert_eq!(a.trailing_zeros(), 2);
+
+        a = BigInt::from_binary("1000000");
+        assert_eq!(a.trailing_zeros(), 6);
+
+        // Test across limb boundary
+        a = BigInt::from_binary(&("1".repeat(64) + &"0".repeat(5)));
+        assert_eq!(a.trailing_zeros(), 5);
+
+        // Test multiple limbs of zeros
+        a = BigInt::from_binary(&("1".repeat(64) + &"0".repeat(128)));
+        assert_eq!(a.trailing_zeros(), 128);
+        a = BigInt::from_binary(&("1".repeat(64) + &"0".repeat(147)));
+        assert_eq!(a.trailing_zeros(), 147);
+
+        // Test all zeros
+        a = BigInt::from_binary(&"0".repeat(256));
+        assert_eq!(a.trailing_zeros(), 256);
     }
 }
