@@ -1,10 +1,7 @@
 extern crate rand;
 use rand::Rng;
-use std::ops::Add;
-use std::ops::BitAnd;
-use std::ops::BitOrAssign;
-use std::ops::ShrAssign;
-
+use std::ops::{Add, BitAnd, BitOrAssign, ShrAssign, Mul, Sub, Shl, Rem};
+#[derive(Clone)]
 pub struct BigInt {
     limbs: Vec<u64>, // binary-based limbs. each limb represents a 2^64 block.
 }
@@ -50,10 +47,10 @@ impl BigInt {
     }
 }
 
-impl Add for BigInt {
-    type Output = Self;
+impl Add for &BigInt {
+    type Output = BigInt;
 
-    fn add(self, other: Self) -> Self {
+    fn add(self, other: Self) -> BigInt {
         let mut limbs = Vec::with_capacity(self.limbs.len() + other.limbs.len() + 1);
         let mut carry = 0;
         for i in 0..self.limbs.len() {
@@ -64,7 +61,120 @@ impl Add for BigInt {
         if carry != 0 {
             limbs.push(carry);
         }
-        Self { limbs }
+        BigInt { limbs }
+    }
+}
+
+impl Mul for &BigInt {
+    type Output = BigInt;
+
+    fn mul(self, rhs: Self) -> BigInt {
+        // Allocate enough space for the result limbs.
+        let mut result = vec![0u64; self.limbs.len() + rhs.limbs.len()];
+
+        // Perform long multiplication on limbs.
+        for (i, &a) in self.limbs.iter().enumerate() {
+            let mut carry: u128 = 0;
+            for (j, &b) in rhs.limbs.iter().enumerate() {
+                let k = i + j;
+                let prod = (a as u128) * (b as u128) + (result[k] as u128) + carry;
+                result[k] = prod as u64;
+                carry = prod >> 64;
+            }
+            result[i + rhs.limbs.len()] = carry as u64;
+        }
+
+        // Normalize by removing trailing zero limbs (but keep at least one limb).
+        while result.len() > 1 && *result.last().unwrap() == 0 {
+            result.pop();
+        }
+
+        BigInt { limbs: result }
+    }
+}
+
+impl<'a, 'b> Sub<&'b BigInt> for &'a BigInt {
+    type Output = BigInt;
+    fn sub(self, other: &BigInt) -> BigInt {
+        let mut result = Vec::with_capacity(self.limbs.len());
+        let mut borrow = 0u64;
+        for i in 0..self.limbs.len() {
+            let a = self.limbs[i];
+            let b = if i < other.limbs.len() { other.limbs[i] } else { 0 };
+            let (res, did_borrow) = a.overflowing_sub(b + borrow);
+            result.push(res);
+            borrow = if did_borrow { 1 } else { 0 };
+        }
+        // Remove any unnecessary leading zero limbs,
+        // but keep at least one limb.
+        while result.len() > 1 && *result.last().unwrap() == 0 {
+            result.pop();
+        }
+        BigInt { limbs: result }
+    }
+}
+
+impl Shl<usize> for &BigInt {
+    type Output = BigInt;
+    fn shl(self, shift: usize) -> BigInt {
+        let limb_shift = shift / 64;
+        let bit_shift = shift % 64;
+        let mut result = vec![0u64; limb_shift];
+        let mut carry = 0u64;
+        for &limb in &self.limbs {
+            let new_limb = (limb << bit_shift) | carry;
+            carry = if bit_shift == 0 { 0 } else { limb >> (64 - bit_shift) };
+            result.push(new_limb);
+        }
+        if carry != 0 {
+            result.push(carry);
+        }
+        BigInt { limbs: result }
+    }
+}
+
+impl BigInt {
+    pub fn bit_length(&self) -> usize {
+        // Assumes BigInt is normalized (i.e. no extra zero limbs at the end)
+        let ms = *self.limbs.last().unwrap();
+        let bits = 64 - ms.leading_zeros() as usize;
+        (self.limbs.len() - 1) * 64 + bits
+    }
+
+    fn cmp_bigint(&self, other: &BigInt) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        if self.limbs.len() != other.limbs.len() {
+            return self.limbs.len().cmp(&other.limbs.len());
+        }
+        for (&a, &b) in self.limbs.iter().rev().zip(other.limbs.iter().rev()) {
+            if a != b {
+                return a.cmp(&b);
+            }
+        }
+        Ordering::Equal
+    }
+}
+
+impl Rem<&BigInt> for &BigInt {
+    type Output = BigInt;
+    fn rem(self, rhs: &BigInt) -> BigInt {
+        // Panic if trying to mod by 0.
+        if rhs.limbs.len() == 1 && rhs.limbs[0] == 0 {
+            panic!("Division by zero in modulus operation");
+        }
+        // If self is smaller than rhs, the remainder is self.
+        let mut dividend = self.clone();
+        if dividend.cmp_bigint(rhs) == std::cmp::Ordering::Less {
+            return dividend.clone();
+        }
+        let shift = dividend.bit_length() - rhs.bit_length();
+        for i in (0..=shift).rev() {
+            let candidate = rhs << i;
+            if dividend.cmp_bigint(&candidate) != std::cmp::Ordering::Less {
+                dividend = &dividend - &candidate;
+            }
+        }
+        dividend.clone()
     }
 }
 
@@ -135,6 +245,7 @@ impl BitOrAssign<u64> for BigInt {
     }
 }
 
+
 // a bunch of helper arithmetic functions
 impl BigInt {
     pub fn minus_one(&mut self) {
@@ -167,6 +278,23 @@ impl BigInt {
         (self.limbs.len() as u32) * 64
     }
 
+    pub fn modpow(&self, exp: &BigInt, modulus: &BigInt) -> BigInt {
+        let mut result = BigInt::from_u64(1);
+        let mut base = self % modulus;
+        let mut e = exp.clone();
+        while e > 0u64 {
+            if !e.is_even() {
+                result = &(&result * &base) % modulus;
+            }
+            e >>= 1;
+            base = &(&base * &base) % modulus;
+        }
+        result
+    }
+
+    pub fn modpow_u32(&self, exp: u32, modulus: &BigInt) -> BigInt {
+        self.modpow(&BigInt::from_u64(exp as u64), modulus)
+    }
 }
 // Representation
 impl BigInt {
@@ -263,7 +391,7 @@ mod tests_ops {
         let a = BigInt::from_binary(&"1".repeat(777));
         let b = BigInt::from_binary(&"1".repeat(777));
         let c = BigInt::from_binary(&format!("{}0", "1".repeat(777)));
-        assert!(a + b == c);
+        assert!(&a + &b == c);
     }
 
     #[test]
