@@ -9,3 +9,7 @@ rand = "0.8.5"
 [[bin]]
 name = "bigint"
 path = "src/bi_main.rs"
+
+[[bin]]
+name = "primegen"
+path = "src/primegen.rs"
