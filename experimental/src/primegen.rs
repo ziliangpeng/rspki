@@ -57,6 +57,14 @@ fn miller_rabin(n: &BigInt, k: u64) -> bool {
 }
 
 fn main() {
-    let n = generate_prime(128);
+    let args: Vec<String> = std::env::args().collect();
+    let n_bits: usize = args
+        .iter()
+        .find(|arg| arg.starts_with("--n_bits="))
+        .and_then(|arg| arg.split('=').nth(1))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(128);
+    println!("Generating prime with {} bits", n_bits);
+    let n = generate_prime(n_bits);
     println!("0x{}", n.hex());
 }
