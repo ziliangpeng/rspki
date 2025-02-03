@@ -192,19 +192,22 @@ impl Rem for &BigInt {
         if rhs.limbs.len() == 1 && rhs.limbs[0] == 0 {
             panic!("Division by zero in modulus operation");
         }
-        // If self is smaller than rhs, the remainder is self.
         let mut dividend = self.clone();
-        if dividend.cmp_bigint(rhs) == std::cmp::Ordering::Less {
-            return dividend.clone();
+        if dividend < *rhs {
+            return dividend;
         }
         let shift = dividend.bit_length() - rhs.bit_length();
-        for i in (0..=shift).rev() {
-            let candidate = rhs << i;
-            if dividend.cmp_bigint(&candidate) != std::cmp::Ordering::Less {
-                dividend = &dividend - &candidate;
+        // Compute the initial candidate only once.
+        let mut candidate = rhs << shift;
+        // For each shift position, try subtracting the candidate from the dividend,
+        // then shift candidate to the right.
+        for _ in 0..=shift {
+            if dividend >= candidate {
+                dividend -= &candidate;
             }
+            candidate >>= 1;
         }
-        dividend.clone()
+        dividend
     }
 }
 
@@ -308,6 +311,24 @@ impl ShrAssign<u32> for BigInt {
 impl BitOrAssign<u64> for BigInt {
     fn bitor_assign(&mut self, other: u64) {
         self.limbs[0] |= other;
+    }
+}
+
+impl std::ops::SubAssign<&BigInt> for BigInt {
+    fn sub_assign(&mut self, other: &BigInt) {
+        let mut borrow = 0u64;
+        for i in 0..self.limbs.len() {
+            let a = self.limbs[i];
+            let b = if i < other.limbs.len() {
+                other.limbs[i]
+            } else {
+                0
+            };
+            let (res, did_borrow) = a.overflowing_sub(b + borrow);
+            self.limbs[i] = res;
+            borrow = if did_borrow { 1 } else { 0 };
+        }
+        self.compact();
     }
 }
 
