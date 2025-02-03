@@ -7,9 +7,6 @@ fn generate_prime(n_bits: usize) -> BigInt {
     loop {
         n = BigInt::random(n_bits);
         n |= 1; // Ensure the number is odd.
-        // println!(".{}", n.hex());
-        n.compact();
-        // println!(",{}", n.hex());
         if miller_rabin(&n, 40) {
             break;
         }
@@ -29,8 +26,6 @@ fn miller_rabin(n: &BigInt, k: u64) -> bool {
         return false;
     }
 
-    // BUG FIX: Instead of using n1.clone().minus_one() on a throwaway clone,
-    // properly clone n and then subtract one to obtain n - 1.
     let mut n1 = n.clone();
     n1.minus_one();
     let mut d = n1.clone();
@@ -38,13 +33,9 @@ fn miller_rabin(n: &BigInt, k: u64) -> bool {
     d >>= s;
 
     for i in 0..k {
-        // println!("round {}", i);
-        let mut a = BigInt::random(n.bit_length() - 1);
-        a.compact();
-        // println!("begin modpow");
+        let a = BigInt::random(n.bit_length() - 1);
         n.assert_valid();
         let mut x = a.modpow(&d, n);
-        // println!("end modpow");
 
         if x == 1 || x == n1 {
             continue;
@@ -58,7 +49,6 @@ fn miller_rabin(n: &BigInt, k: u64) -> bool {
         }
 
         if x != n1 {
-            // println!("failed {} {}", x.binary(), n1.binary());
             return false;
         }
     }
@@ -67,6 +57,6 @@ fn miller_rabin(n: &BigInt, k: u64) -> bool {
 }
 
 fn main() {
-    let n = generate_prime(512);
+    let n = generate_prime(128);
     println!("0x{}", n.hex());
 }

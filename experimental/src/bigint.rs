@@ -6,7 +6,7 @@ pub struct BigInt {
     limbs: Vec<u64>, // binary-based limbs. each limb represents a 2^64 block.
 }
 
-// Construction and instantiation
+// Construction and instantiation and validation
 impl BigInt {
     pub fn random(bits: usize) -> Self {
         let num_limbs = (bits + 63) / 64;
@@ -17,7 +17,9 @@ impl BigInt {
         if bits % 64 != 0 {
             limbs.push(rand::thread_rng().gen::<u64>() & ((1 << (bits % 64)) - 1));
         }
-        Self { limbs }
+        let mut result = Self { limbs };
+        result.compact();
+        result
     }
 
     pub fn from_binary(binary: &str) -> Self {
@@ -46,18 +48,21 @@ impl BigInt {
         Self { limbs: vec![n] }
     }
 
-    pub fn assert_valid(&self) {
-        // Ensure that if BigInt has more than one limb, the most significant limb is non-zero.
-        if self.limbs.len() > 1 {
-            assert!(*self.limbs.last().unwrap() != 0, "Invalid BigInt: highest limb is 0 when multiple limbs exist {:?}", self.binary());
-        }
-    }
-
-    pub fn compact(&mut self) {
+    fn compact(&mut self) {
+        // TODO: do in in a way that i can "a.compact()" in fn random so it returns the compacted BigInt,
+        // but also i can "a.compact()" as a function to just compact it. figure out how ownership works.
         while self.limbs.len() > 1 && *self.limbs.last().unwrap() == 0 {
             self.limbs.pop();
         }
     }
+
+    pub fn assert_valid(&self) {
+        if self.limbs.len() > 1 {
+            // TODO: maybe debug_assert
+            assert!(*self.limbs.last().unwrap() != 0, "Invalid BigInt: highest limb is 0 when multiple limbs exist {:?}", self.binary());
+        }
+    }
+
 }
 
 impl Add for &BigInt {
@@ -113,6 +118,7 @@ impl Mul for &BigInt {
             result[i + len_rhs] = carry as u64;
         }
 
+        // TODO: use .compact()
         // Normalize: remove trailing zero limbs while keeping at least one limb.
         while result.len() > 1 && *result.last().unwrap() == 0 {
             result.pop();
@@ -134,6 +140,7 @@ impl<'a, 'b> Sub<&'b BigInt> for &'a BigInt {
             result.push(diff);
             borrow = if did_borrow { 1 } else { 0 };
         }
+        // TODO: use .compact()
         // Normalize: remove any trailing zero limbs while ensuring at least one limb remains.
         while result.len() > 1 && *result.last().unwrap() == 0 {
             result.pop();
@@ -158,31 +165,6 @@ impl Shl<usize> for &BigInt {
             result.push(carry);
         }
         BigInt { limbs: result }
-    }
-}
-
-impl BigInt {
-    pub fn bit_length(&self) -> usize {
-        // Assumes BigInt is normalized (i.e. no extra zero limbs at the end)
-        let ms = *self.limbs.last().unwrap();
-        let bits = 64 - ms.leading_zeros() as usize;
-        (self.limbs.len() - 1) * 64 + bits
-    }
-
-    fn cmp_bigint(&mut self, other: &BigInt) -> std::cmp::Ordering {
-        while self.limbs.len() > 1 && self.limbs[self.limbs.len() - 1] == 0 {
-            self.limbs.pop();
-        }
-        use std::cmp::Ordering;
-        if self.limbs.len() != other.limbs.len() {
-            return self.limbs.len().cmp(&other.limbs.len());
-        }
-        for (&a, &b) in self.limbs.iter().rev().zip(other.limbs.iter().rev()) {
-            if a != b {
-                return a.cmp(&b);
-            }
-        }
-        Ordering::Equal
     }
 }
 
@@ -226,20 +208,12 @@ impl PartialEq<u64> for BigInt {
 
 impl Eq for BigInt {}
 
-
 impl PartialOrd<u64> for BigInt {
     fn partial_cmp(&self, other: &u64) -> Option<std::cmp::Ordering> {
-        let mut s = self.clone();
-        // while s.limbs.len() > 1 && s.limbs[s.limbs.len() - 1] == 0 {
-        //     println!("{} {}", s.binary(), other);
-        //     s.limbs.pop();
-        // }
-        // println!("{} {}", s.binary(), other);
-
-        if s.limbs.len() > 1 {
+        if self.limbs.len() > 1 {
             return Some(std::cmp::Ordering::Greater);
         }
-        Some(s.limbs[0].cmp(other))
+        Some(self.limbs[0].cmp(other))
     }
 }
 
@@ -261,14 +235,13 @@ impl PartialOrd for BigInt {
     }
 }
 
-impl std::cmp::Ord for BigInt {
+impl Ord for BigInt {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Since our BigInt is always non-negative and normalized,
         // we can safely unwrap the result of partial_cmp.
         self.partial_cmp(other).unwrap()
     }
 }
-
 
 impl BitAnd<u64> for BigInt {
     type Output = u64;
@@ -310,7 +283,6 @@ impl ShrAssign<u32> for BigInt {
 
         // Normalize: Remove trailing zero limbs (if the most significant limb is zero)
         while self.limbs.len() > 1 && *self.limbs.last().unwrap() == 0 {
-            // println!("actually pop");
             self.limbs.pop();
         }
     }
@@ -325,6 +297,28 @@ impl BitOrAssign<u64> for BigInt {
 
 // a bunch of helper arithmetic functions
 impl BigInt {
+    pub fn bit_length(&self) -> usize {
+        // Assumes BigInt is normalized (i.e. no extra zero limbs at the end)
+        let ms = *self.limbs.last().unwrap();
+        let bits = 64 - ms.leading_zeros() as usize;
+        (self.limbs.len() - 1) * 64 + bits
+    }
+
+    fn cmp_bigint(&mut self, other: &BigInt) -> std::cmp::Ordering {
+        while self.limbs.len() > 1 && self.limbs[self.limbs.len() - 1] == 0 {
+            self.limbs.pop();
+        }
+        use std::cmp::Ordering;
+        if self.limbs.len() != other.limbs.len() {
+            return self.limbs.len().cmp(&other.limbs.len());
+        }
+        for (&a, &b) in self.limbs.iter().rev().zip(other.limbs.iter().rev()) {
+            if a != b {
+                return a.cmp(&b);
+            }
+        }
+        Ordering::Equal
+    }
     pub fn minus_one(&mut self) {
         // technically i--; but rust do not have decrement operator, thus a new function.
         let mut i = 0;
@@ -359,33 +353,15 @@ impl BigInt {
         self.assert_valid();
         exp.assert_valid();
         modulus.assert_valid();
-        // println!("modulus {}", modulus.binary());
-        // println!("exp {}", exp.binary());
-        // println!("self {}", self.binary());
         let mut result = BigInt::from_u64(1);
         let mut base = self % modulus;
         let mut e = exp.clone();
         while e > 0 {
-            // println!("begin {}", e.binary());
-            let start = std::time::Instant::now();
             if !e.is_even() {
                 result = &(&result * &base) % modulus;
             }
-            // println!("Time taken for this 1 operation: {:?}", start.elapsed());
-
-            let shift_start = std::time::Instant::now();
             e >>= 1;
-            // println!("Time taken for shift 2 operation: {:?}", shift_start.elapsed());
-
-            // println!("e {}", e.binary());
-
-            let op_start = std::time::Instant::now();
             base = &(&base * &base) % modulus;
-            // println!("base {}", base.binary());
-            // println!("modulus {}", modulus.binary());
-            // println!("num limbs of base: {}", base.bit_length());
-            // println!("Last limb of base: {}", base.limbs.last().unwrap());
-            // println!("Time taken for squaring operation: {:?}", op_start.elapsed());
         }
         result
     }
@@ -441,9 +417,9 @@ mod tests_constructors {
         }
 
         for _i in 0..8 {
-            n = BigInt::random(65);
+            n = BigInt::random(120);
             assert_eq!(n.limbs.len(), 2);
-            assert!(n.limbs[1] < (1 << 1));
+            assert!(n.limbs[1] < (1 << (120-64)));
         }
     }
 
@@ -523,17 +499,17 @@ mod tests_ops {
 
     #[test]
     fn test_bitand_u64() {
-        let mut a = BigInt::from_binary(&"1111");
+        let a = BigInt::from_binary(&"1111");
         let a_u64 = a & 10u64; // 1010 in binary
         let b = BigInt::from_binary(&"1010");
         assert!(b == a_u64);
 
-        let mut a = BigInt::from_hex("FFFFFFFFFFFFFFFF");
+        let a = BigInt::from_hex("FFFFFFFFFFFFFFFF");
         let a_u64 = a & 42u64;
         let b = BigInt::from_u64(42);
         assert!(b == a_u64);
 
-        let mut a = BigInt::from_binary(&"1".repeat(1000));
+        let a = BigInt::from_binary(&"1".repeat(1000));
         let a_u64 = a & 1u64;
         let b = BigInt::from_u64(1);
         assert!(b == a_u64);
@@ -658,83 +634,73 @@ mod tests_ops {
         assert_eq!(d, BigInt::from_u64(0x8000000000000000));
     }
 
- // Start Generation Here
- #[test]
- fn test_rem() {
-     // Test modulo with dividend greater than divisor.
-     let a = BigInt::from_u64(100);
-     let b = BigInt::from_u64(30);
-     let r = &a % &b;
-     assert_eq!(r, BigInt::from_u64(10));
+    #[test]
+    fn test_rem() {
+        // Test modulo with dividend greater than divisor.
+        let a = BigInt::from_u64(100);
+        let b = BigInt::from_u64(30);
+        let r = &a % &b;
+        assert_eq!(r, BigInt::from_u64(10));
 
-     // Test modulo when dividend is smaller than divisor (the remainder should be the dividend itself).
-     let a = BigInt::from_u64(42);
-     let b = BigInt::from_u64(100);
-     let r = &a % &b;
-     assert_eq!(r, a);
+        // Test modulo when dividend is smaller than divisor (the remainder should be the dividend itself).
+        let a = BigInt::from_u64(42);
+        let b = BigInt::from_u64(100);
+        let r = &a % &b;
+        assert_eq!(r, a);
 
-     // Test modulo where the dividend is exactly divisible by the divisor (remainder is zero).
-     let a = BigInt::from_u64(12345);
-     let b = BigInt::from_u64(5);
-     let r = &a % &b;
-     assert_eq!(r, BigInt::from_u64(0));
+        // Test modulo where the dividend is exactly divisible by the divisor (remainder is zero).
+        let a = BigInt::from_u64(12345);
+        let b = BigInt::from_u64(5);
+        let r = &a % &b;
+        assert_eq!(r, BigInt::from_u64(0));
 
-     // Multi-limb test:
-     // Construct a BigInt representing 2^64 by using a binary string: "1" followed by 64 zeros.
-     // 2^64 = 18446744073709551616. Since 18446744073709551616 mod 100 is 16, we expect the remainder to be 16.
-     let a = BigInt::from_binary(&format!("1{}", "0".repeat(64)));
-     let r = &a % &BigInt::from_u64(100);
-     assert_eq!(r, BigInt::from_u64(16));
+        // Multi-limb test:
+        // Construct a BigInt representing 2^64 by using a binary string: "1" followed by 64 zeros.
+        // 2^64 = 18446744073709551616. Since 18446744073709551616 mod 100 is 16, we expect the remainder to be 16.
+        let a = BigInt::from_binary(&format!("1{}", "0".repeat(64)));
+        let r = &a % &BigInt::from_u64(100);
+        assert_eq!(r, BigInt::from_u64(16));
 
-     let a: BigInt = BigInt::random(65536);
-     let b: BigInt = BigInt::random(99);
-     let mut base = &a % &b;
-    //  println!("b {}", b.bit_length());
-     for _ in 0..10 {
-        // println!("before {}", base.bit_length());
-        base = &(&base * &base) % &b;
-        // println!("after {}", base.bit_length());
-        assert!(base.bit_length() <= b.bit_length());
-     }
- }
+        let a: BigInt = BigInt::random(65536);
+        let b: BigInt = BigInt::random(99);
+        let mut base = &a % &b;
+        for _ in 0..10 {
+            base = &(&base * &base) % &b;
+            assert!(base.bit_length() <= b.bit_length());
+        }
+    }
 
 #[test]
 fn test_modpow() {
-    // // Test case 1: Exponent zero. Any base to the power 0 should return 1 mod modulus.
-    // let base = BigInt::from_u64(123456789);
-    // let exp = BigInt::from_u64(0);
-    // let modulus = BigInt::from_u64(98765);
-    // let result = base.modpow(&exp, &modulus);
-    // assert_eq!(result, BigInt::from_u64(1));
+    // Test case 1: Exponent zero. Any base to the power 0 should return 1 mod modulus.
+    let base = BigInt::from_u64(123456789);
+    let exp = BigInt::from_u64(0);
+    let modulus = BigInt::from_u64(98765);
+    let result = base.modpow(&exp, &modulus);
+    assert_eq!(result, BigInt::from_u64(1));
 
-    // // Test case 2: Small exponent.
-    // // 2^10 = 1024, and 1024 mod 1000 equals 24.
-    // let base = BigInt::from_u64(2);
-    // let exp = BigInt::from_u64(10);
-    // let modulus = BigInt::from_u64(1000);
-    // let result = base.modpow(&exp, &modulus);
-    // assert_eq!(result, BigInt::from_u64(24));
+    // Test case 2: Small exponent.
+    // 2^10 = 1024, and 1024 mod 1000 equals 24.
+    let base = BigInt::from_u64(2);
+    let exp = BigInt::from_u64(10);
+    let modulus = BigInt::from_u64(1000);
+    let result = base.modpow(&exp, &modulus);
+    assert_eq!(result, BigInt::from_u64(24));
 
-    // // Test case 3: Another simple example.
-    // // 3^5 = 243, and 243 mod 13 equals 9.
-    // let base = BigInt::from_u64(3);
-    // let exp = BigInt::from_u64(5);
-    // let modulus = BigInt::from_u64(13);
-    // let result = base.modpow(&exp, &modulus);
-    // assert_eq!(result, BigInt::from_u64(9));
+    // Test case 3: Another simple example.
+    // 3^5 = 243, and 243 mod 13 equals 9.
+    let base = BigInt::from_u64(3);
+    let exp = BigInt::from_u64(5);
+    let modulus = BigInt::from_u64(13);
+    let result = base.modpow(&exp, &modulus);
+    assert_eq!(result, BigInt::from_u64(9));
 
     // Test case 4: Multi-limb computation.
     // 2^20 = 1048576, and 1048576 mod 17 equals 16.
     let base = BigInt::random(177);
     let exp = BigInt::random(123);
     let modulus = BigInt::random(99);
-
-    let modulus = BigInt::from_binary("00000000000000000000000000000000000000000000000000000000000000000111001100101010110101011100011100111100101110001111111100110011");
-    // let exp = BigInt::from_binary("0011100110010101011010101110001110011110010111000111111110011001");
-
     let result = base.modpow(&exp, &modulus);
-    // println!("result {}", result.binary());
-
     assert!(result.bit_length() <= modulus.bit_length());
 }
     
