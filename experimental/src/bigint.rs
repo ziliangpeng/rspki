@@ -482,6 +482,7 @@ mod tests_constructors {
 }
 
 mod tests_ops {
+    #[allow(unused_imports)]
     use super::BigInt;
 
     #[test]
@@ -721,6 +722,7 @@ mod tests_ops {
 }
 
 mod tests_arithmetic {
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]

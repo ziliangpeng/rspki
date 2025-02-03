@@ -32,7 +32,7 @@ fn miller_rabin(n: &BigInt, k: u64) -> bool {
     let s = d.trailing_zeros();
     d >>= s;
 
-    for i in 0..k {
+    for _i in 0..k {
         let a = BigInt::random(n.bit_length() - 1);
         n.assert_valid();
         let mut x = a.modpow(&d, n);
