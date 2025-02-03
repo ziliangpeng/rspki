@@ -1,6 +1,6 @@
 extern crate rand;
 use rand::Rng;
-use std::ops::{Add, BitAnd, BitOrAssign, ShrAssign, Mul, Sub, Shl, Rem};
+use std::ops::{Add, BitAnd, BitOrAssign, Mul, Rem, Shl, ShrAssign, Sub};
 #[derive(Clone)]
 pub struct BigInt {
     limbs: Vec<u64>, // binary-based limbs. each limb represents a 2^64 block.
@@ -59,10 +59,13 @@ impl BigInt {
     pub fn assert_valid(&self) {
         if self.limbs.len() > 1 {
             // TODO: maybe debug_assert
-            assert!(*self.limbs.last().unwrap() != 0, "Invalid BigInt: highest limb is 0 when multiple limbs exist {:?}", self.binary());
+            assert!(
+                *self.limbs.last().unwrap() != 0,
+                "Invalid BigInt: highest limb is 0 when multiple limbs exist {:?}",
+                self.binary()
+            );
         }
     }
-
 }
 
 impl Add for &BigInt {
@@ -74,8 +77,16 @@ impl Add for &BigInt {
         let mut carry: u128 = 0;
 
         for i in 0..max_len {
-            let a = if i < self.limbs.len() { self.limbs[i] as u128 } else { 0 };
-            let b = if i < other.limbs.len() { other.limbs[i] as u128 } else { 0 };
+            let a = if i < self.limbs.len() {
+                self.limbs[i] as u128
+            } else {
+                0
+            };
+            let b = if i < other.limbs.len() {
+                other.limbs[i] as u128
+            } else {
+                0
+            };
             let sum = a + b + carry;
             result.push(sum as u64);
             carry = sum >> 64;
@@ -108,8 +119,7 @@ impl Mul for &BigInt {
             let mut carry: u128 = 0;
             for j in 0..len_rhs {
                 let idx = i + j;
-                let prod = (self.limbs[i] as u128)
-                    * (rhs.limbs[j] as u128)
+                let prod = (self.limbs[i] as u128) * (rhs.limbs[j] as u128)
                     + (result[idx] as u128)
                     + carry;
                 result[idx] = prod as u64;
@@ -131,7 +141,10 @@ impl Mul for &BigInt {
 impl<'a, 'b> Sub<&'b BigInt> for &'a BigInt {
     type Output = BigInt;
     fn sub(self, other: &BigInt) -> BigInt {
-        assert!(self >= other, "Subtraction underflow: left operand is smaller than right operand");
+        assert!(
+            self >= other,
+            "Subtraction underflow: left operand is smaller than right operand"
+        );
         let mut borrow = 0u64;
         let mut result = Vec::with_capacity(self.limbs.len());
         for (i, &limb) in self.limbs.iter().enumerate() {
@@ -158,7 +171,11 @@ impl Shl<usize> for &BigInt {
         let mut carry = 0u64;
         for &limb in &self.limbs {
             let new_limb = (limb << bit_shift) | carry;
-            carry = if bit_shift == 0 { 0 } else { limb >> (64 - bit_shift) };
+            carry = if bit_shift == 0 {
+                0
+            } else {
+                limb >> (64 - bit_shift)
+            };
             result.push(new_limb);
         }
         if carry != 0 {
@@ -294,7 +311,6 @@ impl BitOrAssign<u64> for BigInt {
     }
 }
 
-
 // a bunch of helper arithmetic functions
 impl BigInt {
     pub fn bit_length(&self) -> usize {
@@ -389,7 +405,6 @@ impl BigInt {
             .collect::<Vec<String>>()
             .join("")
     }
-
 }
 impl std::fmt::Debug for BigInt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -419,7 +434,7 @@ mod tests_constructors {
         for _i in 0..8 {
             n = BigInt::random(120);
             assert_eq!(n.limbs.len(), 2);
-            assert!(n.limbs[1] < (1 << (120-64)));
+            assert!(n.limbs[1] < (1 << (120 - 64)));
         }
     }
 
@@ -670,42 +685,40 @@ mod tests_ops {
         }
     }
 
-#[test]
-fn test_modpow() {
-    // Test case 1: Exponent zero. Any base to the power 0 should return 1 mod modulus.
-    let base = BigInt::from_u64(123456789);
-    let exp = BigInt::from_u64(0);
-    let modulus = BigInt::from_u64(98765);
-    let result = base.modpow(&exp, &modulus);
-    assert_eq!(result, BigInt::from_u64(1));
+    #[test]
+    fn test_modpow() {
+        // Test case 1: Exponent zero. Any base to the power 0 should return 1 mod modulus.
+        let base = BigInt::from_u64(123456789);
+        let exp = BigInt::from_u64(0);
+        let modulus = BigInt::from_u64(98765);
+        let result = base.modpow(&exp, &modulus);
+        assert_eq!(result, BigInt::from_u64(1));
 
-    // Test case 2: Small exponent.
-    // 2^10 = 1024, and 1024 mod 1000 equals 24.
-    let base = BigInt::from_u64(2);
-    let exp = BigInt::from_u64(10);
-    let modulus = BigInt::from_u64(1000);
-    let result = base.modpow(&exp, &modulus);
-    assert_eq!(result, BigInt::from_u64(24));
+        // Test case 2: Small exponent.
+        // 2^10 = 1024, and 1024 mod 1000 equals 24.
+        let base = BigInt::from_u64(2);
+        let exp = BigInt::from_u64(10);
+        let modulus = BigInt::from_u64(1000);
+        let result = base.modpow(&exp, &modulus);
+        assert_eq!(result, BigInt::from_u64(24));
 
-    // Test case 3: Another simple example.
-    // 3^5 = 243, and 243 mod 13 equals 9.
-    let base = BigInt::from_u64(3);
-    let exp = BigInt::from_u64(5);
-    let modulus = BigInt::from_u64(13);
-    let result = base.modpow(&exp, &modulus);
-    assert_eq!(result, BigInt::from_u64(9));
+        // Test case 3: Another simple example.
+        // 3^5 = 243, and 243 mod 13 equals 9.
+        let base = BigInt::from_u64(3);
+        let exp = BigInt::from_u64(5);
+        let modulus = BigInt::from_u64(13);
+        let result = base.modpow(&exp, &modulus);
+        assert_eq!(result, BigInt::from_u64(9));
 
-    // Test case 4: Multi-limb computation.
-    // 2^20 = 1048576, and 1048576 mod 17 equals 16.
-    let base = BigInt::random(177);
-    let exp = BigInt::random(123);
-    let modulus = BigInt::random(99);
-    let result = base.modpow(&exp, &modulus);
-    assert!(result.bit_length() <= modulus.bit_length());
+        // Test case 4: Multi-limb computation.
+        // 2^20 = 1048576, and 1048576 mod 17 equals 16.
+        let base = BigInt::random(177);
+        let exp = BigInt::random(123);
+        let modulus = BigInt::random(99);
+        let result = base.modpow(&exp, &modulus);
+        assert!(result.bit_length() <= modulus.bit_length());
+    }
 }
-    
-}
-
 
 mod tests_arithmetic {
     use super::*;
@@ -728,7 +741,9 @@ mod tests_arithmetic {
         let mut c = BigInt::from_binary(&bin_str);
         c.minus_one();
         // After subtraction, the internal limbs should be [u64::MAX, 0]
-        let expected = BigInt { limbs: vec![u64::MAX, 0] };
+        let expected = BigInt {
+            limbs: vec![u64::MAX, 0],
+        };
         assert_eq!(c, expected);
     }
 
