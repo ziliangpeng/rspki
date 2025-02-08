@@ -1,21 +1,32 @@
 extern crate rand;
 use rand::Rng;
 use std::ops::{Add, BitAnd, BitOrAssign, Mul, Rem, Shl, ShrAssign, Sub};
+use std::sync::{LazyLock, Mutex};
+
 #[derive(Clone)]
 pub struct BigInt {
     limbs: Vec<u64>, // binary-based limbs. each limb represents a 2^64 block.
 }
+use rand::rngs::StdRng;
+use rand::SeedableRng;
+
+static R: LazyLock<Mutex<StdRng>> = LazyLock::new(|| Mutex::new(StdRng::seed_from_u64(0)));
 
 // Construction and instantiation and validation
 impl BigInt {
+    pub fn seed(seed: u64) -> () {
+        *R.lock().unwrap() = StdRng::seed_from_u64(seed);
+    }
+
     pub fn random(bits: usize) -> Self {
         let num_limbs = (bits + 63) / 64;
         let mut limbs = Vec::with_capacity(num_limbs);
+        // TODO: we can make it so that it uses rand::thread_rng() if not explicitly seeded.
         for _ in 0..bits / 64 {
-            limbs.push(rand::thread_rng().gen());
+            limbs.push(R.lock().unwrap().gen());
         }
         if bits % 64 != 0 {
-            limbs.push(rand::thread_rng().gen::<u64>() & ((1 << (bits % 64)) - 1));
+            limbs.push(R.lock().unwrap().gen::<u64>() & ((1 << (bits % 64)) - 1));
         }
         let mut result = Self { limbs };
         result.compact();

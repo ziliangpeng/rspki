@@ -64,6 +64,8 @@ fn main() {
         .and_then(|arg| arg.split('=').nth(1))
         .and_then(|s| s.parse().ok())
         .unwrap_or(128);
+
+    BigInt::seed(42);
     println!("Generating prime with {} bits", n_bits);
     let n = generate_prime(n_bits);
     println!("0x{}", n.hex());
