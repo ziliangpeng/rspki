@@ -64,9 +64,17 @@ fn main() {
         .and_then(|arg| arg.split('=').nth(1))
         .and_then(|s| s.parse().ok())
         .unwrap_or(128);
+    let repeat: usize = args
+        .iter()
+        .find(|arg| arg.starts_with("--repeat="))
+        .and_then(|arg| arg.split('=').nth(1))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
 
     BigInt::seed(42);
-    println!("Generating prime with {} bits", n_bits);
-    let n = generate_prime(n_bits);
-    println!("0x{}", n.hex());
+    println!("Generating {} primes with {} bits", repeat, n_bits);
+    for _ in 0..repeat {
+        let n = generate_prime(n_bits);
+        println!("0x{}", n.hex());
+    }
 }
