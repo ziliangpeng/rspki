@@ -219,6 +219,22 @@ impl Rem for &BigInt {
     }
 }
 
+impl Rem<u64> for &BigInt {
+    type Output = u64;
+    fn rem(self, rhs: u64) -> u64 {
+        if rhs == 0 {
+            panic!("Division by zero in modulus operation");
+        }
+        let modulus = rhs as u128;
+        let mut remainder: u128 = 0;
+        for &limb in self.limbs.iter().rev() {
+            remainder = (remainder << 64) | limb as u128;
+            remainder %= modulus;
+        }
+        remainder as u64
+    }
+}
+
 impl PartialEq for BigInt {
     fn eq(&self, other: &Self) -> bool {
         self.limbs == other.limbs
